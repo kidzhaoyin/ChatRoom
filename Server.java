@@ -12,8 +12,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Set;
-
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
+
 
 
 
@@ -83,6 +85,8 @@ public class Server {
 		ConcurrentHashMap<String, Instant> blocked = new ConcurrentHashMap<String, Instant>();
 		ConcurrentHashMap<String, Instant> last = new ConcurrentHashMap<String, Instant>();
 		
+		ConcurrentHashMap<String, Timer> timers = new ConcurrentHashMap<String, Timer>();
+		
 		//listen for clients to connect
 		while (true) {
 			Socket client = null;
@@ -94,7 +98,7 @@ public class Server {
 				e.printStackTrace();
 			}
 		
-			ClientHandler serveOne = new ClientHandler(client, userPass, onlineCilents, blocked, last);
+			ClientHandler serveOne = new ClientHandler(client, userPass, onlineCilents, blocked, last, timers);
 
 			Thread t = new Thread(serveOne);
 			t.start();
@@ -109,7 +113,8 @@ class ClientHandler implements Runnable {
 	
 	final static int BLOCK_TIME = 60;
 	final static int MAX_WRONG = 3;
-	final static int TIME_OUT = 1;
+	//final static int TIME_OUT = 1;
+	final static int TIME_OUT = 30;
 	
 	private ConcurrentHashMap<String, ClientHandler> onlineClients;
 	private Socket client;
@@ -123,12 +128,14 @@ class ClientHandler implements Runnable {
 	private ConcurrentHashMap<String, Instant> blocked;
 	private ConcurrentHashMap<String, Instant> lastSixty;
 	private Instant last = null;
+	private ConcurrentHashMap<String, Timer> timers;
 	
 	ClientHandler( Socket client,
 			HashMap<String, String> userPasses, 
 			ConcurrentHashMap<String, ClientHandler> onlineUsers,
 			ConcurrentHashMap<String, Instant> blockList,
-			ConcurrentHashMap<String, Instant> lastSixty) throws IOException {
+			ConcurrentHashMap<String, Instant> lastSixty,
+			ConcurrentHashMap<String, Timer> timers) throws IOException {
 
 		this.client = client;
 
@@ -137,6 +144,8 @@ class ClientHandler implements Runnable {
 		this.blocked = blockList;
 		this.name = "dummy";
 		this.lastSixty = lastSixty;
+		this.timers = timers;
+		
 		
 	}
 	
@@ -181,6 +190,11 @@ class ClientHandler implements Runnable {
 		//Timeout timer = new Timeout(TIME_OUT, last, client, out, onlineClients, name);
 		//Thread t = new Thread(timer);
 		
+		Timer timer = new Timer();
+		TimerTask t = new TimeoutLogout(client, out, onlineClients, name);
+		timer.schedule(t, TIME_OUT * 60000);
+		timers.put(name, timer);
+		
 		while (true) {
 	
 			try {
@@ -190,6 +204,12 @@ class ClientHandler implements Runnable {
 				System.out.println("I/O exception.");
 				e.printStackTrace();
 			}
+			//cancel the scheduled timeout once getting a responce from user
+			timers.get(name).cancel();
+			//restart timer
+			Timer newtimer = new Timer();
+			newtimer.schedule(new TimeoutLogout(client, out, onlineClients, name), TIME_OUT * 60000);
+			timers.put(name, newtimer);
 			
 			if (input == null) continue;
 			
@@ -452,15 +472,38 @@ class ClientHandler implements Runnable {
 	public PrintWriter getWriter() {
 		return this.out;
 	}
+	
+
 
 }
 
+class TimeoutLogout extends TimerTask {
+	Socket client;
+	PrintWriter out;
+	ConcurrentHashMap<String, ClientHandler> onlineUsers;
+	String user;
+	
+	public TimeoutLogout(Socket sock, PrintWriter writer, ConcurrentHashMap<String, ClientHandler> users,
+			String username) {
+		client = sock;
+		out = writer;
+		onlineUsers = users;
+		user = username;
+	}
+	
+	public void run() {
+
+		onlineUsers.remove(user);
+		out.println("logout");
+	}
+	
+}
 
 class Timeout implements Runnable {
 	
 	private int out;
 	private Instant lastAc;
-	static final int TIME_OUT = 1;
+	static final int TIME_OUT = 30;
 	private Socket sock;
 	PrintWriter output;
 	private ConcurrentHashMap<String, ClientHandler> onlineUsers;
