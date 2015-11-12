@@ -30,6 +30,51 @@ public class Server {
 	public Server(int port) {
 		this.portNumber = port;
 	}
+
+
+	public static void main(String[] args) throws Exception {
+		
+		if ( args.length != 1) {
+			
+			throw new Exception("usage: java Server <port_number>");
+		}
+		
+		int portNumber = Integer.valueOf(args[0]);
+		
+		Server server = new Server(portNumber);
+		
+		HashMap<String, String> userPass = server.readUserPass();
+		
+		//open the server socket for listening
+		server.initialize();
+		
+		System.out.println("initialized");
+		
+		//map to record who are online
+		ConcurrentHashMap<String, ClientHandler> onlineCilents = new ConcurrentHashMap<String, ClientHandler>();
+		//record who are blocked
+		ConcurrentHashMap<String, Instant> blocked = new ConcurrentHashMap<String, Instant>();
+		ConcurrentHashMap<String, Instant> last = new ConcurrentHashMap<String, Instant>();
+		
+		ConcurrentHashMap<String, Timer> timers = new ConcurrentHashMap<String, Timer>();
+		
+		//listen for clients to connect
+		while (true) {
+			
+			Socket client = null;
+			try {
+				client = serverSocket.accept();
+				System.out.println("accepted");
+			} catch (IOException e) {
+				System.out.println("Unable to accept the client.");
+				e.printStackTrace();
+			}
+		
+			ClientHandler serveOne = new ClientHandler(client, userPass, onlineCilents, blocked, last, timers);
+			Thread t = new Thread(serveOne);
+			t.start();	
+		}
+	}
 	
 	
 	//open the listening socket
@@ -45,7 +90,6 @@ public class Server {
 		System.out.println("Chat room starts! ");	
 		
 	}
-	
 	//read the file containing username-password information
 	private HashMap<String, String> readUserPass() throws IOException {
 		
@@ -62,50 +106,6 @@ public class Server {
 		return userPassList;
 	}
 	
-
-	public static void main(String[] args) throws Exception {
-		
-		if ( args.length != 1) {
-			
-			throw new Exception("usage: java Server <port_number>");
-		}
-		int portNumber = Integer.valueOf(args[0]);
-		
-		Server server = new Server(portNumber);
-		System.out.println("server object created");
-		HashMap<String, String> userPass = server.readUserPass();
-		
-		//open the server socket for listening
-		server.initialize();
-		
-		System.out.println("initialized");
-		//map to record who are online
-		ConcurrentHashMap<String, ClientHandler> onlineCilents = new ConcurrentHashMap<String, ClientHandler>();
-		//record who are blocked
-		ConcurrentHashMap<String, Instant> blocked = new ConcurrentHashMap<String, Instant>();
-		ConcurrentHashMap<String, Instant> last = new ConcurrentHashMap<String, Instant>();
-		
-		ConcurrentHashMap<String, Timer> timers = new ConcurrentHashMap<String, Timer>();
-		
-		//listen for clients to connect
-		while (true) {
-			Socket client = null;
-			try {
-				client = serverSocket.accept();
-				System.out.println("accepted");
-			} catch (IOException e) {
-				System.out.println("Unable to accept the client.");
-				e.printStackTrace();
-			}
-		
-			ClientHandler serveOne = new ClientHandler(client, userPass, onlineCilents, blocked, last, timers);
-
-			Thread t = new Thread(serveOne);
-			t.start();
-		
-			
-		}
-	}
 }
 
 
@@ -113,7 +113,6 @@ class ClientHandler implements Runnable {
 	
 	final static int BLOCK_TIME = 60;
 	final static int MAX_WRONG = 3;
-	//final static int TIME_OUT = 1;
 	final static int TIME_OUT = 30;
 	
 	private ConcurrentHashMap<String, ClientHandler> onlineClients;
@@ -121,13 +120,11 @@ class ClientHandler implements Runnable {
 	private String name;
 	PrintWriter out = null;
 	BufferedReader in = null;
-//	private long loginTime = 0;
 	private Instant loginTime = null;
 	private String input = "";
 	private HashMap<String, String> userPasses;
 	private ConcurrentHashMap<String, Instant> blocked;
 	private ConcurrentHashMap<String, Instant> lastSixty;
-	private Instant last = null;
 	private ConcurrentHashMap<String, Timer> timers;
 	
 	ClientHandler( Socket client,
@@ -144,9 +141,7 @@ class ClientHandler implements Runnable {
 		this.blocked = blockList;
 		this.name = "dummy";
 		this.lastSixty = lastSixty;
-		this.timers = timers;
-		
-		
+		this.timers = timers;	
 	}
 	
 	
@@ -184,7 +179,6 @@ class ClientHandler implements Runnable {
 		
 		
 		loginTime = Instant.now();
-		last = loginTime;
 		
 		out.println("Command: ");
 		//Timeout timer = new Timeout(TIME_OUT, last, client, out, onlineClients, name);
@@ -213,9 +207,6 @@ class ClientHandler implements Runnable {
 			
 			if (input == null) continue;
 			
-			//t.start();
-			
-			last = Instant.now();
 			String[] commands = input.split(" ");
 			
 			//execute whoelse: display names of other users
@@ -472,8 +463,6 @@ class ClientHandler implements Runnable {
 	public PrintWriter getWriter() {
 		return this.out;
 	}
-	
-
 
 }
 
@@ -499,49 +488,5 @@ class TimeoutLogout extends TimerTask {
 	
 }
 
-class Timeout implements Runnable {
-	
-	private int out;
-	private Instant lastAc;
-	static final int TIME_OUT = 30;
-	private Socket sock;
-	PrintWriter output;
-	private ConcurrentHashMap<String, ClientHandler> onlineUsers;
-	private String name;
-	
-	public Timeout(int timeout, Instant last, Socket sock, PrintWriter output, ConcurrentHashMap<String, ClientHandler> online, String name) {
-		this.out = timeout;
-		this.lastAc = last;
-		this.output = output;
-		this.sock = sock;
-		this.onlineUsers = online;
-		this.name = name;
-	}
-	
-	public void run() {
-		long sleepTime = TIME_OUT * 60 - Duration.between(lastAc, Instant.now()).getSeconds()*1000;
-		if (sleepTime > 0) {
-		try {
-			Thread.sleep( sleepTime);
-		} catch (InterruptedException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-		}
-		if (Duration.between(lastAc, Instant.now()).getSeconds() > (out * 60) || sleepTime <= 0) {
-			output.println("logout.");
-			onlineUsers.remove(name);
-			try {
-				sock.close();
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-		}}
-	}
-	
-	
-	
-	
-}
 
 

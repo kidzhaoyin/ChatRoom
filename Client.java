@@ -116,10 +116,8 @@ class SendingClient implements Runnable {
 	public void run() {
 		boolean running = true;
 		PrintWriter pw = null;
-		//BufferedReader in = null;
 		Scanner in = new Scanner(System.in);
 		try{
-			//in = new BufferedReader(new InputStreamReader(System.in));
 			pw = new PrintWriter(sock.getOutputStream());
 			String userInput;
 			while (running) {
@@ -139,12 +137,6 @@ class SendingClient implements Runnable {
 		}
 		in.close();
 		pw.close();
-//		try {
-//			sock.close();
-//		} catch (IOException e) {
-			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
 	}
 	
 }
